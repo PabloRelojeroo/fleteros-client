@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fleteros Client</title>
+  <style>
+    @import url('./css/theme.css');
+    @import url('./css/animations.css');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 300px;
+      height: 400px;
+      background: transparent;
+      overflow: hidden;
+      font-family: 'Poppins', system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #splash {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #0d0d14 0%, #1a0a0a 100%);
+      border-radius: 20px;
+      border: 1px solid rgba(124, 58, 237, 0.20);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      animation: splash-expand 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+    }
+
+    #splash::before {
+      content: '';
+      position: absolute;
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, rgba(196, 30, 30, 0.15) 0%, transparent 70%);
+      border-radius: 50%;
+      top: -100px;
+      left: -50px;
+    }
+
+    .splash-logo {
+      width: 80px;
+      height: 80px;
+      border-radius: 20px;
+      box-shadow: 0 8px 32px rgba(196, 30, 30, 0.40);
+      position: relative;
+      z-index: 1;
+    }
+
+    .splash-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: white;
+      position: relative;
+      z-index: 1;
+    }
+
+    .splash-subtitle {
+      font-size: 11px;
+      color: rgba(255,255,255,0.40);
+      position: relative;
+      z-index: 1;
+      margin-top: -14px;
+      letter-spacing: 0.08em;
+    }
+
+    .splash-progress {
+      width: 140px;
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+
+    .splash-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #c41e1e, #e53535);
+      border-radius: 999px;
+      width: 0%;
+      transition: width 0.4s ease;
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite linear;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    .splash-status {
+      font-size: 11px;
+      color: rgba(255,255,255,0.35);
+      position: relative;
+      z-index: 1;
+      margin-top: -8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="splash">
+    <img class="splash-logo" src="./images/icon.png" alt="Fleteros" onerror="this.style.display='none'" />
+    <div class="splash-title">Fleteros Client</div>
+    <div class="splash-subtitle">MINECRAFT LAUNCHER</div>
+    <div class="splash-progress">
+      <div class="splash-progress-fill" id="progress-fill"></div>
+    </div>
+    <div class="splash-status" id="splash-status">Iniciando...</div>
+  </div>
+  <script src="./js/index.js"></script>
+</body>
+</html>

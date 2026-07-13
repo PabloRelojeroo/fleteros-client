@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fleteros Client</title>
+  <link rel="stylesheet" href="./css/launcher.css" />
+  <link rel="stylesheet" href="./css/panels/home.css" />
+  <link rel="stylesheet" href="./css/panels/login.css" />
+  <link rel="stylesheet" href="./css/panels/settings.css" />
+</head>
+<body>
+  <div id="splash-overlay" style="
+    position:fixed;inset:0;z-index:9999;
+    background:linear-gradient(135deg,#0d0d14 0%,#1a0a0a 100%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+    transition:opacity 0.4s ease;
+  ">
+    <img src="./images/icon.png" style="width:72px;height:72px;border-radius:18px;box-shadow:0 8px 32px rgba(196,30,30,0.4);" onerror="this.style.display='none'" />
+    <div style="font-family:Poppins,sans-serif;font-size:20px;font-weight:700;color:white;">Fleteros Client</div>
+    <div style="font-family:Poppins,sans-serif;font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">MINECRAFT LAUNCHER</div>
+    <div style="width:140px;height:3px;background:rgba(255,255,255,0.08);border-radius:999px;overflow:hidden;">
+      <div id="splash-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#c41e1e,#e53535);border-radius:999px;transition:width 0.4s ease;"></div>
+    </div>
+    <div id="splash-status-overlay" style="font-family:Poppins,sans-serif;font-size:11px;color:rgba(255,255,255,0.35);">Iniciando...</div>
+  </div>
+
+  <div id="background"></div>
+
+  <div id="titlebar" data-tauri-drag-region>
+    <span class="titlebar-title" data-tauri-drag-region>Fleteros Client</span>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn close"    id="btn-close"    title="Cerrar"></button>
+      <button class="titlebar-btn minimize" id="btn-minimize" title="Minimizar"></button>
+      <button class="titlebar-btn maximize" id="btn-maximize" title="Maximizar"></button>
+    </div>
+  </div>
+
+  <div id="app">
+    <aside id="sidebar" style="display:none;">
+      <div class="sidebar-logo" data-tauri-drag-region>
+        <img src="./images/icon.png" alt="Fleteros" onerror="this.style.display='none'" />
+        <span>Fleteros Client</span>
+      </div>
+
+      <nav id="nav">
+        <div class="nav-item active" data-panel="home">
+          <span class="nav-icon">⚔</span>
+          <span>Jugar</span>
+        </div>
+        <div class="nav-item" data-panel="settings">
+          <span class="nav-icon">⚙</span>
+          <span>Ajustes</span>
+        </div>
+        <div class="nav-item nav-item-logs" id="nav-logs-btn">
+          <span class="nav-icon">
+            <span class="log-nav-dot" id="log-nav-dot"></span>
+            ▤
+          </span>
+          <span>Logs</span>
+        </div>
+      </nav>
+
+      <div class="sidebar-account" id="account-btn">
+        <div class="account-skin">
+          <img id="account-skin-img" src="./images/default/steve.png" alt="skin"
+               onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 36 36%22><rect width=%2236%22 height=%2236%22 fill=%22%23c41e1e%22/><text x=%2218%22 y=%2225%22 font-size=%2220%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22sans-serif%22>S</text></svg>'" />
+        </div>
+        <div class="account-info">
+          <div class="account-name" id="account-username">—</div>
+          <div class="account-type" id="account-type">—</div>
+        </div>
+      </div>
+    </aside>
+
+    <main id="main-content">
+
+      <div id="login-panel" class="panel active">
+        <div class="login-card">
+          <div class="login-logo">
+            <img src="./images/icon.png" alt="Fleteros" onerror="this.style.display='none'" />
+            <h2>Bienvenido</h2>
+          </div>
+
+          <div class="auth-tabs">
+            <div class="auth-tab active" data-form="microsoft">Microsoft</div>
+            <div class="auth-tab"        data-form="offline">Offline</div>
+          </div>
+
+          <div class="auth-form active" id="form-microsoft">
+            <p style="font-size:12px;color:var(--text-secondary);text-align:center;margin-bottom:8px;">
+              Iniciá sesión con tu cuenta oficial de Minecraft
+            </p>
+            <button class="btn-microsoft" id="btn-microsoft-login">
+              <svg viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+              </svg>
+              Continuar con Microsoft
+            </button>
+          </div>
+
+          <div class="auth-form" id="form-offline">
+            <div class="form-group">
+              <label class="form-label">Nombre de usuario</label>
+              <input class="input" type="text" id="offline-username" placeholder="Steve" maxlength="16" autocomplete="off" />
+            </div>
+            <p style="font-size:11px;color:var(--text-muted);text-align:center;">
+              Modo sin cuenta. Solo servidores offline.
+            </p>
+            <button class="btn btn-primary form-submit" id="btn-offline-login">Entrar</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="home-panel" class="panel">
+        <div class="library-header">
+          <h1>Biblioteca</h1>
+          <p>Elegí tu instancia</p>
+        </div>
+
+        <div class="instances-library" id="instances-grid"></div>
+
+        <div class="instance-expanded" id="instance-expanded">
+          <div class="expanded-bg" id="expanded-bg"></div>
+          <button class="expanded-back" id="expanded-back" title="Volver">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          <div class="expanded-content">
+            <img class="expanded-logo" id="expanded-logo" src="" alt="" onerror="this.style.display='none'" />
+            <div class="expanded-name" id="expanded-name">—</div>
+            <div class="expanded-meta" id="expanded-meta">—</div>
+            <div class="expanded-actions">
+              <button class="btn btn-play expanded-play animate-pulse-glow" id="btn-play">▶ JUGAR</button>
+            </div>
+          </div>
+
+          <div class="download-overlay" id="download-overlay" style="display:none;">
+            <div class="download-card">
+              <div class="download-header">
+                <span class="download-phase" id="dl-phase">Descargando</span>
+                <div class="download-stats">
+                  <span id="dl-speed">—</span>
+                  <span id="dl-eta">—</span>
+                </div>
+              </div>
+              <div class="download-file" id="dl-file">—</div>
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="dl-progress-fill" style="width:0%"></div>
+              </div>
+              <div class="download-counter" id="dl-counter">0 / 0 archivos</div>
+              <button class="btn btn-secondary btn-cancel" id="btn-cancel-download">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="settings-panel" class="panel">
+        <div class="settings-header">
+          <h1>Ajustes</h1>
+          <p>Configuración del launcher</p>
+        </div>
+
+        <div class="settings-sections">
+          <div class="settings-section">
+            <div class="section-title">Java</div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Ruta de Java</div>
+                <div class="setting-desc">Ejecutable java.exe</div>
+              </div>
+              <div class="java-path-row">
+                <input class="input" type="text" id="java-path" placeholder="Detectado automáticamente" autocomplete="off" />
+                <button class="btn btn-secondary" id="btn-detect-java">Detectar</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info"><div class="setting-name">RAM mínima</div></div>
+              <div class="slider-wrapper">
+                <input class="slider" type="range" id="ram-min" min="512" max="8192" step="256" value="1024" />
+                <span class="slider-value" id="ram-min-val">1024 MB</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info"><div class="setting-name">RAM máxima</div></div>
+              <div class="slider-wrapper">
+                <input class="slider" type="range" id="ram-max" min="1024" max="16384" step="512" value="4096" />
+                <span class="slider-value" id="ram-max-val">4096 MB</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="section-title">Juego</div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Resolución</div>
+                <div class="setting-desc">Tamaño de ventana del juego</div>
+              </div>
+              <div class="resolution-inputs">
+                <input class="input" type="number" id="res-width" value="1280" min="800" autocomplete="off" />
+                <span class="resolution-sep">×</span>
+                <input class="input" type="number" id="res-height" value="720" min="600" autocomplete="off" />
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Ocultar al jugar</div>
+                <div class="setting-desc">Minimiza cuando inicia Minecraft</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="toggle-hide" checked />
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info"><div class="setting-name">Descargas simultáneas</div></div>
+              <div class="slider-wrapper">
+                <input class="slider" type="range" id="concurrent-dl" min="1" max="32" step="1" value="10" />
+                <span class="slider-value" id="concurrent-dl-val">10</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="section-title">Launcher</div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Tema claro</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="toggle-theme" />
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Discord RPC</div>
+                <div class="setting-desc">Muestra actividad en Discord</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="toggle-discord" checked />
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+
+          <button class="btn btn-primary settings-save" id="btn-save-settings">Guardar ajustes</button>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <div id="notifications"></div>
+
+  <div class="accounts-modal-overlay" id="accounts-modal">
+    <div class="accounts-modal">
+      <div class="accounts-modal-title">Cuentas</div>
+      <div class="accounts-list" id="accounts-list"></div>
+      <div class="accounts-modal-footer">
+        <button class="btn btn-secondary" id="btn-accounts-add" style="flex:1;">+ Agregar cuenta</button>
+        <button class="btn btn-secondary" id="btn-accounts-close" style="flex:1;">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="log-modal-overlay" id="log-panel">
+    <div class="log-modal">
+      <div class="log-header">
+        <div class="log-header-left">
+          <span class="log-title">Logs del juego</span>
+          <span class="log-status">
+            <span class="log-status-dot" id="log-status-dot"></span>
+            <span id="log-status-text">Inactivo</span>
+          </span>
+        </div>
+        <button class="log-modal-close" id="log-modal-close">✕</button>
+      </div>
+      <div class="log-content" id="log-content"></div>
+    </div>
+  </div>
+
+  <script src="./js/utils/notify.js"></script>
+  <script src="./js/panels/login.js"></script>
+  <script src="./js/panels/home.js"></script>
+  <script src="./js/panels/settings.js"></script>
+  <script src="./js/launcher.js"></script>
+</body>
+</html>
