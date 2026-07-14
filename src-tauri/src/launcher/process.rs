@@ -21,6 +21,17 @@ pub struct ConfiguracionLanzamiento {
     pub extra_jvm_args: Option<Vec<String>>,
 }
 
+fn marca_launcher(app: &AppHandle) -> String {
+    app.config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "launcher".to_string())
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
 #[tauri::command]
 pub async fn launch_game(config: ConfiguracionLanzamiento, app: AppHandle) -> Result<(), String> {
     let ruta_juego = PathBuf::from(&config.game_dir);
@@ -40,7 +51,10 @@ pub async fn launch_game(config: ConfiguracionLanzamiento, app: AppHandle) -> Re
         config.game_dir, config.version
     ));
     argumentos.push("-Dfile.encoding=UTF-8".to_string());
-    argumentos.push("-Dminecraft.launcher.brand=fleteros-client".to_string());
+    argumentos.push(format!(
+        "-Dminecraft.launcher.brand={}",
+        marca_launcher(&app)
+    ));
 
     if let Some(ref extra) = config.extra_jvm_args {
         argumentos.extend(extra.clone());

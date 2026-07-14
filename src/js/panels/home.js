@@ -1,4 +1,4 @@
-const URL_BASE = 'https://pablorelojero.online';
+const URL_BASE = window.BRAND.urlBase;
 const URL_CONFIG = `${URL_BASE}/launcher/config-launcher/config.json`;
 const URL_INSTANCIAS = `${URL_BASE}/files/index.php`;
 
@@ -382,7 +382,7 @@ function formatearEta(segundos) {
 async function obtenerDirectorioJuego(instancia) {
   let base = await window.__TAURI__.path.appDataDir();
   if (!base.endsWith('/') && !base.endsWith('\\')) base += '\\';
-  return `${base}FleterosClient\\${instancia.name}`;
+  return `${base}${window.BRAND.modsFolderName}\\${instancia.name}`;
 }
 
 window._initHome = inicializarHome;

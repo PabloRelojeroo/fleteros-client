@@ -1,5 +1,20 @@
 document.addEventListener('contextmenu', e => e.preventDefault());
 
+function aplicarMarca() {
+  const marca = window.BRAND;
+  if (!marca) return;
+  document.title = marca.appName;
+  document.querySelectorAll('.titlebar-title').forEach(el => { el.textContent = marca.appName; });
+  const splashTitulo = document.getElementById('splash-title-overlay');
+  if (splashTitulo) splashTitulo.textContent = marca.appName;
+  const sidebarTitulo = document.getElementById('sidebar-title');
+  if (sidebarTitulo) sidebarTitulo.textContent = marca.appName;
+  const tagline = document.getElementById('splash-tagline-overlay');
+  if (tagline && marca.tagline) tagline.textContent = marca.tagline;
+  document.querySelectorAll('img[alt="Fleteros"]').forEach(img => { img.alt = marca.appName; });
+}
+aplicarMarca();
+
 async function obtenerSrcCabezaSkin(cuenta, tamano = 36) {
   const uuid = cuenta.uuid?.replace(/-/g, '') || '';
   if (uuid && (cuenta.auth_type === 'microsoft' || cuenta.auth_type === 'azauth')) {

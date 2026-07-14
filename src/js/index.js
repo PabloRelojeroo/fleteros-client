@@ -1,6 +1,19 @@
 const relleno = document.getElementById('progress-fill');
 const elementoEstado = document.getElementById('splash-status');
 
+function aplicarMarca() {
+  const marca = window.BRAND;
+  if (!marca) return;
+  document.title = marca.appName;
+  const titulo = document.querySelector('.splash-title');
+  if (titulo) titulo.textContent = marca.appName;
+  const subtitulo = document.querySelector('.splash-subtitle');
+  if (subtitulo && marca.tagline) subtitulo.textContent = marca.tagline;
+  const logo = document.querySelector('.splash-logo');
+  if (logo) logo.alt = marca.appName;
+}
+aplicarMarca();
+
 function establecerProgreso(pct, estado) {
   if (relleno) relleno.style.width = `${pct}%`;
   if (elementoEstado) elementoEstado.textContent = estado;
