@@ -46,55 +46,57 @@ try {
         throw "gh release download fallo para el tag '$tag'"
     }
 
+    $latestOrigenPath = Join-Path $tempDir 'latest.json'
+    if (-not (Test-Path $latestOrigenPath)) {
+        throw "El release '$tag' no trae latest.json (lo genera Tauri con createUpdaterArtifacts). No se puede deployar sin la version/firmas reales del build."
+    }
+
+    # Se usa el latest.json que genera Tauri como unica fuente de verdad para
+    # version/firmas/plataformas: sale del build real, no del nombre del tag.
+    # Si el tag no coincide con la version bumpeada en tauri.conf.json (ej. te
+    # olvidaste de correr bump-version antes de taggear), ESTE archivo va a
+    # tener la version correcta igual, y eso es lo que hay que confiar.
+    $latestOrigen = Get-Content -Raw -Path $latestOrigenPath | ConvertFrom-Json
+
+    if ($latestOrigen.version -ne $tag.TrimStart('v')) {
+        Write-Warning "El tag es '$tag' pero el build real es version '$($latestOrigen.version)' (tauri.conf.json no se bumpeo antes de taggear). Se va a deployar la version real: $($latestOrigen.version)."
+    }
+
     $targetDir = Join-Path $deployRoot $launcherName
     New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
 
-    $version = $tag.TrimStart('v')
     $platforms = [ordered]@{}
+    $archivosCopiados = @{}
 
-    function Deploy-Asset {
-        param($file, [string] $platformKey)
-        $sig = Get-ChildItem -Path $tempDir -Filter "$($file.Name).sig" -File | Select-Object -First 1
-        if (-not $sig) {
-            Write-Warning "No se encontro .sig para $($file.Name), se omite $platformKey"
-            return $null
+    foreach ($prop in $latestOrigen.platforms.PSObject.Properties) {
+        $plataforma = $prop.Name
+        $entradaOrigen = $prop.Value
+        $nombreArchivo = [System.Uri]::UnescapeDataString(([System.Uri]$entradaOrigen.url).Segments[-1])
+
+        $archivoLocal = Get-ChildItem -Path $tempDir -Filter $nombreArchivo -File | Select-Object -First 1
+        if (-not $archivoLocal) {
+            Write-Warning "No se encontro '$nombreArchivo' entre los assets descargados, se omite la plataforma '$plataforma'"
+            continue
         }
-        Copy-Item -Path $file.FullName -Destination (Join-Path $targetDir $file.Name) -Force
-        Copy-Item -Path $sig.FullName -Destination (Join-Path $targetDir $sig.Name) -Force
-        return [ordered]@{
-            signature = [System.IO.File]::ReadAllText($sig.FullName)
-            url       = "https://pablorelojero.online/launchers/$launcherName/$([System.Uri]::EscapeDataString($file.Name))"
+
+        if (-not $archivosCopiados.ContainsKey($nombreArchivo)) {
+            Copy-Item -Path $archivoLocal.FullName -Destination (Join-Path $targetDir $nombreArchivo) -Force
+            $archivosCopiados[$nombreArchivo] = $true
         }
-    }
 
-    $winFile = Get-ChildItem -Path $tempDir -Filter "*-setup.exe" -File | Select-Object -First 1
-    if ($winFile) {
-        $entry = Deploy-Asset -file $winFile -platformKey "windows-x86_64"
-        if ($entry) { $platforms["windows-x86_64"] = $entry }
-    }
-
-    $linuxFile = Get-ChildItem -Path $tempDir -Filter "*.AppImage" -File | Select-Object -First 1
-    if ($linuxFile) {
-        $entry = Deploy-Asset -file $linuxFile -platformKey "linux-x86_64"
-        if ($entry) { $platforms["linux-x86_64"] = $entry }
-    }
-
-    $macFile = Get-ChildItem -Path $tempDir -Filter "*.app.tar.gz" -File | Select-Object -First 1
-    if ($macFile) {
-        $entry = Deploy-Asset -file $macFile -platformKey "darwin"
-        if ($entry) {
-            $platforms["darwin-x86_64"] = $entry
-            $platforms["darwin-aarch64"] = $entry
+        $platforms[$plataforma] = [ordered]@{
+            signature = $entradaOrigen.signature
+            url       = "https://pablorelojero.online/launchers/$launcherName/$([System.Uri]::EscapeDataString($nombreArchivo))"
         }
     }
 
     if ($platforms.Count -eq 0) {
-        throw "No se encontro ningun instalador reconocible entre los assets descargados en $tempDir"
+        throw "No se pudo resolver ninguna plataforma del latest.json contra los assets descargados en $tempDir"
     }
 
     $latest = [ordered]@{
-        version   = $version
-        notes     = "Release $version"
+        version   = $latestOrigen.version
+        notes     = "Release $($latestOrigen.version)"
         pub_date  = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         platforms = $platforms
     }
@@ -103,7 +105,7 @@ try {
     $latestPath = Join-Path $targetDir 'latest.json'
     [System.IO.File]::WriteAllText($latestPath, $latestJson, (New-Object System.Text.UTF8Encoding $false))
 
-    Write-Output "Deployado '$launcherName' version $version a $targetDir"
+    Write-Output "Deployado '$launcherName' version $($latestOrigen.version) a $targetDir"
     Write-Output "Plataformas incluidas: $($platforms.Keys -join ', ')"
     Write-Output "latest.json en $latestPath"
 }
