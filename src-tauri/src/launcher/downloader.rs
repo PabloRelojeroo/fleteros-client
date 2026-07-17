@@ -11,8 +11,6 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Semaphore;
 use tokio::io::AsyncWriteExt;
 
-/// Progreso acumulado de una fase de descarga completa (no de un archivo individual),
-/// compartido entre todas las tareas concurrentes de esa fase.
 struct EstadoProgresoGlobal {
     bytes_done: AtomicU64,
     bytes_total: u64,
@@ -66,6 +64,14 @@ struct DatosVersion {
     arguments: Option<Argumentos>,
     #[serde(rename = "minecraftArguments")]
     minecraft_arguments: Option<String>,
+    #[serde(rename = "javaVersion")]
+    java_version: Option<InfoJavaVersion>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InfoJavaVersion {
+    #[serde(rename = "majorVersion")]
+    major_version: u32,
 }
 
 #[allow(dead_code)]
@@ -352,6 +358,7 @@ pub async fn download_instance(
         "success": true,
         "mainClass": clase_principal_final,
         "gameArgs": datos_version.minecraft_arguments.unwrap_or_default(),
+        "javaMajorVersion": datos_version.java_version.map(|j| j.major_version),
     }))
 }
 
@@ -364,8 +371,6 @@ async fn ejecutar_descargas_concurrentes(
 ) {
     let concurrencia = max_concurrent.max(1).min(32);
 
-    // Primero se determina qué archivos realmente hacen falta (concurrente),
-    // para poder sumar un tamaño total real ANTES de arrancar a descargar.
     let pendientes: Vec<(String, PathBuf, Option<String>, u64)> = stream::iter(archivos.iter().cloned())
         .map(|(url, ruta, sha1, size)| async move {
             let necesita = necesita_descarga(&ruta, &sha1).await;
@@ -679,9 +684,6 @@ async fn descargar_archivos_servidor(
 
     let base_url = Url::parse(url_instancia).map_err(|e| format!("Base URL parse failed: {e}"))?;
 
-    // Las carpetas/archivos "ignorados" (config, saves, screenshots, logs, etc.) son del
-    // jugador: nunca se tocan, existan o no ya localmente. Se descartan acá, antes de
-    // encolar nada, para no bajarlos en una instalación nueva.
     let candidatos: Vec<(String, PathBuf, Option<String>, u64)> = archivos
         .iter()
         .filter_map(|archivo_servidor| {
@@ -712,7 +714,6 @@ async fn descargar_archivos_servidor(
 
     let concurrencia = max_concurrent.max(1).min(16);
 
-    // Entre los no ignorados, filtra (concurrente) los que ya están al día.
     let pendientes: Vec<(String, PathBuf, Option<String>, u64)> = stream::iter(candidatos.into_iter())
         .map(|(url, destino, sha1, size)| async move {
             let jar_corrupto = destino.exists()

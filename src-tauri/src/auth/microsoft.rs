@@ -68,8 +68,9 @@ pub async fn auth_microsoft(app: AppHandle) -> Result<Account, String> {
     let (emisor, receptor) = tokio::sync::oneshot::channel::<Result<String, String>>();
     let emisor_compartido = Arc::new(Mutex::new(Some(emisor)));
     let emisor_nav = emisor_compartido.clone();
+    let emisor_cierre = emisor_compartido.clone();
 
-    let _ventana = WebviewWindowBuilder::new(&app, "ms-auth", WebviewUrl::External(url_auth))
+    let ventana = WebviewWindowBuilder::new(&app, "ms-auth", WebviewUrl::External(url_auth))
         .title("Iniciar sesión con Microsoft")
         .inner_size(480.0, 680.0)
         .center()
@@ -92,6 +93,16 @@ pub async fn auth_microsoft(app: AppHandle) -> Result<Account, String> {
         })
         .build()
         .map_err(|e| e.to_string())?;
+
+    ventana.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { .. } = event {
+            if let Ok(mut guard) = emisor_cierre.lock() {
+                if let Some(sender) = guard.take() {
+                    let _ = sender.send(Err("Autenticación cancelada".to_string()));
+                }
+            }
+        }
+    });
 
     let codigo = receptor.await.map_err(|_| "Autenticación cancelada".to_string())??;
 

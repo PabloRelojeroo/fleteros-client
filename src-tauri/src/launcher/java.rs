@@ -14,8 +14,11 @@ pub async fn get_java_paths() -> Result<Vec<InstalacionJava>, String> {
 }
 
 #[tauri::command]
-pub async fn get_best_java_for_version(mc_version: String) -> Result<String, String> {
-    let requerido = version_java_requerida(&mc_version);
+pub async fn get_best_java_for_version(
+    mc_version: String,
+    required_major: Option<u32>,
+) -> Result<String, String> {
+    let requerido = required_major.unwrap_or_else(|| version_java_requerida(&mc_version));
     let instalaciones = detectar_instalaciones_java();
 
     let mejor = instalaciones

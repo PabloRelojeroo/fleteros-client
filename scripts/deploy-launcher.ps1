@@ -83,7 +83,6 @@ try {
     if ($macFile) {
         $entry = Deploy-Asset -file $macFile -platformKey "darwin"
         if ($entry) {
-            # Build universal (--target universal-apple-darwin): mismo binario sirve para ambas arquitecturas.
             $platforms["darwin-x86_64"] = $entry
             $platforms["darwin-aarch64"] = $entry
         }

@@ -7,6 +7,14 @@ let cancelarEscuchaDescarga = null;
 let cancelarEscuchaLog = null;
 let cancelarEscuchaSalidaJuego = null;
 
+function restablecerBotonJugar() {
+  const botonJugar = document.getElementById('btn-play');
+  if (!botonJugar) return;
+  botonJugar.classList.remove('launching', 'playing');
+  botonJugar.textContent = '▶ JUGAR';
+  botonJugar.disabled = false;
+}
+
 function alternarPanelLogs() {
   const panel = document.getElementById('log-panel');
   if (!panel) return;
@@ -36,6 +44,7 @@ async function inicializarHome() {
   const escuchar = window.__TAURI__.event.listen;
 
   escuchar('game-launching', () => {
+    window._juegoEnEjecucion = true;
     agregarLog('Mc iniciado', null);
     establecerEstadoLog('running', 'Jugando...');
     document.getElementById('log-panel')?.classList.add('open');
@@ -43,6 +52,8 @@ async function inicializarHome() {
   });
 
   escuchar('game-exited', (e) => {
+    window._juegoEnEjecucion = false;
+    restablecerBotonJugar();
     const codigo = e.payload;
     establecerEstadoLog('', `Salió (código ${codigo})`);
     document.getElementById('log-nav-dot')?.classList.remove('running');
@@ -51,6 +62,8 @@ async function inicializarHome() {
   });
 
   escuchar('game-error', (e) => {
+    window._juegoEnEjecucion = false;
+    restablecerBotonJugar();
     establecerEstadoLog('', 'Error al iniciar');
     agregarLog(`Error: ${e.payload}`, 'error');
     document.getElementById('log-nav-dot')?.classList.remove('running');
@@ -240,7 +253,9 @@ async function manejarJugar() {
   const directorioJuego = await obtenerDirectorioJuego(instanciaSeleccionada);
 
   const botonJugar = document.getElementById('btn-play');
+  let juegoLanzadoConExito = false;
   if (botonJugar) {
+    botonJugar.classList.remove('playing');
     botonJugar.classList.add('launching');
     botonJugar.textContent = 'Iniciando';
     botonJugar.disabled = true;
@@ -254,7 +269,8 @@ async function manejarJugar() {
     const tipoLoader = instanciaSeleccionada.loader?.loader_type || 'none';
     const verLoader = instanciaSeleccionada.loader?.loader_version || 'latest';
 
-    let rutaJava = (await invocar('get_config', { key: 'java_path' }).catch(() => '')) || '';
+    const rutaJavaManual = (await invocar('get_config', { key: 'java_path' }).catch(() => '')) || '';
+    let rutaJava = rutaJavaManual;
     if (!rutaJava) {
       rutaJava = await invocar('get_best_java_for_version', { mcVersion: versionMc }).catch(() => '');
     }
@@ -283,6 +299,17 @@ async function manejarJugar() {
     cancelarEscuchaDescarga?.();
     cancelarEscuchaDescarga = null;
     ocultarOverlayDescarga();
+
+    if (!rutaJavaManual && resultado.javaMajorVersion) {
+      const rutaJavaCorrecta = await invocar('get_best_java_for_version', {
+        mcVersion: versionMc,
+        requiredMajor: resultado.javaMajorVersion,
+      }).catch(() => '');
+      if (rutaJavaCorrecta) {
+        rutaJava = rutaJavaCorrecta;
+        agregarLog(`[Launcher] Java requerido por el manifiesto: ${resultado.javaMajorVersion}`, null);
+      }
+    }
 
     agregarLog(`[Launcher] Java: ${rutaJava}`, null);
     agregarLog(`[Launcher] Version: ${versionMc}`, null);
@@ -324,6 +351,7 @@ async function manejarJugar() {
     });
 
     notificar('Minecraft iniciado', 'success');
+    juegoLanzadoConExito = true;
 
   } catch (err) {
     cancelarEscuchaDescarga?.();
@@ -335,7 +363,12 @@ async function manejarJugar() {
     document.getElementById('log-panel')?.classList.add('open');
     console.error('manejarJugar error:', err);
   } finally {
-    if (botonJugar) {
+    if (botonJugar && juegoLanzadoConExito) {
+      botonJugar.classList.remove('launching');
+      botonJugar.classList.add('playing');
+      botonJugar.textContent = '● JUGANDO';
+      botonJugar.disabled = true;
+    } else if (botonJugar) {
       botonJugar.classList.remove('launching');
       botonJugar.textContent = '▶ JUGAR';
       botonJugar.disabled = false;
@@ -356,8 +389,16 @@ function ocultarOverlayDescarga() {
 function actualizarProgresoDescarga(progreso) {
   const asignar = (id, valor) => { const el = document.getElementById(id); if (el) el.textContent = valor; };
   const mapaFases = { fetch: 'Obteniendo datos', download: 'Descargando', verify: 'Verificando', extract: 'Extrayendo', loader: 'Instalando loader', instance: 'Sincronizando archivos' };
+  const mapaDescripcion = {
+    fetch: 'Obteniendo datos de la versión',
+    download: 'Descargando datos de Minecraft',
+    loader: 'Instalando mod loader',
+    instance: 'Descargando datos de instancia',
+    verify: 'Verificando archivos',
+    extract: 'Extrayendo archivos',
+  };
   asignar('dl-phase', mapaFases[progreso.phase] || progreso.phase);
-  asignar('dl-file', progreso.file);
+  asignar('dl-file', mapaDescripcion[progreso.phase] || 'Descargando...');
   asignar('dl-speed', formatearVelocidad(progreso.speed_bps));
   asignar('dl-eta', formatearEta(progreso.eta_seconds));
   asignar('dl-counter', `${progreso.files_done} / ${progreso.files_total} archivos`);

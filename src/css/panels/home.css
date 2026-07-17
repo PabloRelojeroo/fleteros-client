@@ -645,3 +645,14 @@
   display: inline-block;
   vertical-align: middle;
 }
+
+.btn-play.playing {
+  background: var(--success);
+  cursor: not-allowed;
+  animation: none;
+}
+
+.btn-play.playing:hover {
+  background: var(--success);
+  transform: none;
+}

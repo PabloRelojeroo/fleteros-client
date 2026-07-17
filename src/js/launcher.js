@@ -67,11 +67,25 @@ async function iniciar() {
   const notificar = window._notify;
   const ventana = getCurrentWebviewWindow();
 
+  const confirmarCierreConJuegoAbierto = async () => {
+    if (!window._juegoEnEjecucion) return true;
+    return await window.__TAURI__.dialog.confirm(
+      'El juego está abierto. Si cerrás el launcher, Minecraft también se va a cerrar. ¿Cerrar de todos modos?',
+      { title: 'Cerrar launcher', kind: 'warning' }
+    );
+  };
+
   document.getElementById('btn-close')?.addEventListener('click', () => ventana.close());
   document.getElementById('btn-minimize')?.addEventListener('click', () => ventana.minimize());
   document.getElementById('btn-maximize')?.addEventListener('click', async () => {
     if (await ventana.isMaximized()) ventana.unmaximize();
     else ventana.maximize();
+  });
+
+  ventana.onCloseRequested(async (evento) => {
+    if (!(await confirmarCierreConJuegoAbierto())) {
+      evento.preventDefault();
+    }
   });
 
   document.querySelectorAll('.nav-item').forEach(item => {
@@ -232,7 +246,7 @@ async function abrirModalCuentas() {
 
     elemento.querySelector('.btn-icon').addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (!confirm(`¿Eliminar cuenta ${cuenta.username}?`)) return;
+      if (!(await window.__TAURI__.dialog.confirm(`¿Eliminar cuenta ${cuenta.username}?`, { title: 'Eliminar cuenta', kind: 'warning' }))) return;
       await invocar('delete_account_cmd', { accountId: cuenta.id });
       if (cuenta.id === idActual) {
         await invocar('set_config', { key: 'active_account_id', value: '' }).catch(() => {});

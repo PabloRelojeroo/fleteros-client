@@ -3,9 +3,6 @@ use std::time::Duration;
 use tauri::AppHandle;
 use uuid::Uuid;
 
-/// Chequea contra la API de Mojang si el nombre pertenece a una cuenta premium real.
-/// Si Mojang no responde (sin internet, caído, timeout) se deja pasar: el modo
-/// offline no debe depender de que un servicio externo esté disponible.
 async fn es_nombre_premium(username: &str) -> bool {
     let cliente = match reqwest::Client::builder()
         .timeout(Duration::from_secs(4))

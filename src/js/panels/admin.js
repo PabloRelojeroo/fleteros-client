@@ -5,6 +5,40 @@ let adminLogoPathElegido = null;
 let adminBackgroundPathElegido = null;
 let adminPermisosToken = null;
 
+function pedirTexto(titulo, esPassword = false) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('prompt-modal');
+    const tituloEl = document.getElementById('prompt-modal-title');
+    const input = document.getElementById('prompt-modal-input');
+    const btnOk = document.getElementById('prompt-modal-ok');
+    const btnCancel = document.getElementById('prompt-modal-cancel');
+    if (!overlay || !input || !btnOk || !btnCancel) { resolve(null); return; }
+
+    tituloEl.textContent = titulo;
+    input.type = esPassword ? 'password' : 'text';
+    input.value = '';
+    overlay.classList.add('open');
+    input.focus();
+
+    const limpiar = () => {
+      overlay.classList.remove('open');
+      btnOk.removeEventListener('click', onOk);
+      btnCancel.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+    };
+    const onOk = () => { const valor = input.value; limpiar(); resolve(valor || null); };
+    const onCancel = () => { limpiar(); resolve(null); };
+    const onKeydown = (e) => {
+      if (e.key === 'Enter') onOk();
+      if (e.key === 'Escape') onCancel();
+    };
+
+    btnOk.addEventListener('click', onOk);
+    btnCancel.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+  });
+}
+
 async function identidadActual() {
   const cuenta = await window._getActiveAccount?.();
   if (!cuenta) return null;
@@ -228,7 +262,11 @@ async function guardarInstanciaAdmin() {
 
 async function eliminarInstanciaAdmin() {
   if (!adminEditandoNombre) return;
-  if (!confirm(`¿Eliminar la instancia "${adminEditandoNombre}"? Esto no borra los archivos del servidor.`)) return;
+  const confirmado = await window.__TAURI__.dialog.confirm(
+    `¿Eliminar la instancia "${adminEditandoNombre}"? Esto no borra los archivos del servidor.`,
+    { title: 'Eliminar instancia', kind: 'warning' }
+  );
+  if (!confirmado) return;
 
   const invocar = window.__TAURI__.core.invoke;
   const notificar = window._notify;
@@ -250,15 +288,12 @@ async function eliminarInstanciaAdmin() {
   }
 }
 
-// --- Permisos: requiere el login clásico (usuario/contraseña) del panel admin ---
-// para que un editor asignado por UUID no pueda otorgarse a sí mismo más acceso.
-
 async function asegurarLoginPermisos() {
   if (adminPermisosToken) return true;
 
-  const usuario = prompt('Usuario admin del backend:');
+  const usuario = await pedirTexto('Usuario admin del backend');
   if (!usuario) return false;
-  const password = prompt('Contraseña admin del backend:');
+  const password = await pedirTexto('Contraseña admin del backend', true);
   if (!password) return false;
 
   const invocar = window.__TAURI__.core.invoke;
