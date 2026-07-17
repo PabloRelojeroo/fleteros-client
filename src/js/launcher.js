@@ -142,16 +142,30 @@ async function iniciar() {
 
 async function buscarActualizaciones() {
   const notificar = window._notify;
+  const log = (msg) => { console.log(msg); window._logExterno?.(msg); };
+
   try {
     const actualizacion = await window.__TAURI__.updater.check();
+    log(`[Updater] check() -> available=${actualizacion?.available} actual=${actualizacion?.currentVersion} nueva=${actualizacion?.version}`);
+
     if (!actualizacion?.available) return;
 
+    if (actualizacion.version === actualizacion.currentVersion) {
+      log(`[Updater] La version "disponible" es igual a la actual (${actualizacion.version}) — se aborta para no entrar en loop.`);
+      return;
+    }
+
     notificar?.(`Descargando actualización ${actualizacion.version}...`, 'info');
+    log(`[Updater] Descargando ${actualizacion.currentVersion} -> ${actualizacion.version}`);
 
     await actualizacion.downloadAndInstall();
+    log('[Updater] Descarga e instalación terminadas, reiniciando...');
+
     await window.__TAURI__.process.relaunch();
   } catch (err) {
+    const mensaje = typeof err === 'string' ? err : (err?.message || JSON.stringify(err));
     console.error('Error buscando actualizaciones:', err);
+    log(`[Updater] Error: ${mensaje}`);
   }
 }
 

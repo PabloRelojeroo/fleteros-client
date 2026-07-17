@@ -428,3 +428,4 @@ async function obtenerDirectorioJuego(instancia) {
 
 window._initHome = inicializarHome;
 window._reloadInstances = cargarInstancias;
+window._logExterno = (linea) => agregarLog(linea);
