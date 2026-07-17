@@ -1,3 +1,4 @@
+mod admin;
 mod auth;
 mod config;
 mod db;
@@ -49,6 +50,14 @@ pub fn run() {
             discord::init_discord_rpc,
             discord::update_rpc,
             discord::stop_rpc,
+            admin::admin_check_access,
+            admin::admin_get_instances,
+            admin::admin_save_instance,
+            admin::admin_delete_instance,
+            admin::admin_upload_image,
+            admin::admin_list_permissions,
+            admin::admin_set_permissions,
+            admin::admin_login,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

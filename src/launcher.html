@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="./css/panels/home.css" />
   <link rel="stylesheet" href="./css/panels/login.css" />
   <link rel="stylesheet" href="./css/panels/settings.css" />
+  <link rel="stylesheet" href="./css/panels/admin.css" />
 </head>
 <body>
   <div id="splash-overlay" style="
@@ -51,6 +52,10 @@
         <div class="nav-item" data-panel="settings">
           <span class="nav-icon">⚙</span>
           <span>Ajustes</span>
+        </div>
+        <div class="nav-item" data-panel="admin" id="nav-admin-btn" style="display:none;">
+          <span class="nav-icon">🛠</span>
+          <span>Admin</span>
         </div>
         <div class="nav-item nav-item-logs" id="nav-logs-btn">
           <span class="nav-icon">
@@ -253,6 +258,137 @@
         </div>
       </div>
 
+      <div id="admin-panel" class="panel">
+        <div class="settings-header">
+          <h1>Admin</h1>
+          <p>Gestión de instancias</p>
+        </div>
+
+        <div class="admin-tabs">
+          <div class="admin-tab active" data-admin-tab="instances">Instancias</div>
+          <div class="admin-tab" data-admin-tab="permissions" id="admin-tab-permissions" style="display:none;">Permisos</div>
+        </div>
+
+        <div class="admin-view active" id="admin-view-instances">
+          <div class="admin-instances-toolbar">
+            <button class="btn btn-primary" id="btn-admin-new-instance">+ Nueva instancia</button>
+          </div>
+          <div class="admin-instances-grid" id="admin-instances-grid"></div>
+
+          <div class="admin-instance-form" id="admin-instance-form" style="display:none;">
+            <div class="settings-sections">
+              <div class="settings-section">
+                <div class="section-title">Datos generales</div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Nombre interno (sin espacios)</div></div>
+                  <input class="input" type="text" id="admin-field-name" autocomplete="off" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Nombre visible</div></div>
+                  <input class="input" type="text" id="admin-field-displayName" autocomplete="off" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Descripción</div></div>
+                  <input class="input" type="text" id="admin-field-description" autocomplete="off" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Versión de Minecraft</div></div>
+                  <input class="input" type="text" id="admin-field-minecraftVersion" autocomplete="off" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Loader</div></div>
+                  <input class="input" type="text" id="admin-field-loaderType" placeholder="forge / fabric / none" autocomplete="off" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Versión del loader</div></div>
+                  <input class="input" type="text" id="admin-field-loaderVersion" autocomplete="off" />
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="section-title">Imágenes</div>
+                <div class="setting-row">
+                  <div class="setting-info">
+                    <div class="setting-name">Logo</div>
+                    <div class="setting-desc" id="admin-logo-path">—</div>
+                  </div>
+                  <button class="btn btn-secondary" id="btn-admin-pick-logo">Elegir imagen</button>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info">
+                    <div class="setting-name">Fondo</div>
+                    <div class="setting-desc" id="admin-background-path">—</div>
+                  </div>
+                  <button class="btn btn-secondary" id="btn-admin-pick-background">Elegir imagen</button>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="section-title">Servidor</div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Nombre del servidor</div></div>
+                  <input class="input" type="text" id="admin-field-serverName" autocomplete="off" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">IP</div></div>
+                  <input class="input" type="text" id="admin-field-serverIP" autocomplete="off" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Puerto</div></div>
+                  <input class="input" type="number" id="admin-field-serverPort" value="25565" autocomplete="off" />
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="section-title">Whitelist</div>
+                <div class="setting-row">
+                  <div class="setting-info">
+                    <div class="setting-name">Activa</div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="admin-field-whitelistActive" />
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-info"><div class="setting-name">Nicks (uno por línea)</div></div>
+                </div>
+                <textarea class="input" id="admin-field-whitelist" rows="4" style="width:100%;resize:vertical;"></textarea>
+              </div>
+
+              <div class="admin-form-actions">
+                <button class="btn btn-secondary" id="btn-admin-cancel">Cancelar</button>
+                <button class="btn btn-secondary" id="btn-admin-delete" style="display:none;">Eliminar instancia</button>
+                <button class="btn btn-primary" id="btn-admin-save">Guardar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-view" id="admin-view-permissions">
+          <div class="settings-sections">
+            <div class="settings-section">
+              <div class="section-title">Super admins</div>
+              <div class="admin-uuid-list" id="admin-superadmins-list"></div>
+              <div class="admin-add-row">
+                <input class="input" type="text" id="admin-new-superadmin-uuid" placeholder="UUID de la cuenta" autocomplete="off" />
+                <button class="btn btn-secondary" id="btn-admin-add-superadmin">Agregar</button>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-title">Editores por instancia</div>
+              <div id="admin-editors-list"></div>
+              <div class="admin-add-row">
+                <input class="input" type="text" id="admin-new-editor-instance" placeholder="Nombre de instancia" autocomplete="off" />
+                <input class="input" type="text" id="admin-new-editor-uuid" placeholder="UUID de la cuenta" autocomplete="off" />
+                <button class="btn btn-secondary" id="btn-admin-add-editor">Agregar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -290,6 +426,7 @@
   <script src="./js/panels/login.js"></script>
   <script src="./js/panels/home.js"></script>
   <script src="./js/panels/settings.js"></script>
+  <script src="./js/panels/admin.js"></script>
   <script src="./js/launcher.js"></script>
 </body>
 </html>

@@ -15,12 +15,30 @@ function aplicarMarca() {
 }
 aplicarMarca();
 
-async function obtenerSrcCabezaSkin(cuenta, tamano = 36) {
+function urlsSkinPosibles(cuenta, tamano) {
   const uuid = cuenta.uuid?.replace(/-/g, '') || '';
   if (uuid && (cuenta.auth_type === 'microsoft' || cuenta.auth_type === 'azauth')) {
-    return `https://crafatar.com/avatars/${uuid}?size=${tamano}&overlay&default=MHF_Steve`;
+    return [
+      `https://mc-heads.net/avatar/${uuid}/${tamano}`,
+      './images/default/steve.png',
+    ];
   }
-  return './images/default/steve.png';
+  return ['./images/default/steve.png'];
+}
+
+function aplicarSkinConFallback(imgEl, cuenta, tamano) {
+  const opciones = urlsSkinPosibles(cuenta, tamano);
+  let indice = 0;
+  const intentarSiguiente = () => {
+    if (indice >= opciones.length) return;
+    const url = opciones[indice++];
+    imgEl.onerror = () => {
+      console.warn(`No se pudo cargar la skin desde ${url}`);
+      intentarSiguiente();
+    };
+    imgEl.src = url;
+  };
+  intentarSiguiente();
 }
 
 function establecerSplash(pct, estado) {
@@ -79,6 +97,7 @@ async function iniciar() {
         await refrescarVistaCuenta();
         mostrarPanel('home');
         await window._initHome();
+        await window._initAdminAccess?.();
       }
     });
 
@@ -94,6 +113,7 @@ async function iniciar() {
       await refrescarVistaCuenta();
       mostrarPanel('home');
       await window._initHome();
+      await window._initAdminAccess?.();
     } else {
       mostrarPanel('login');
     }
@@ -161,8 +181,7 @@ async function actualizarVistaCuenta(cuenta) {
     tipoEl.textContent = etiquetas[cuenta.auth_type] || cuenta.auth_type;
   }
   if (skinEl) {
-    skinEl.onerror = () => { skinEl.src = './images/default/steve.png'; };
-    skinEl.src = await obtenerSrcCabezaSkin(cuenta, 36);
+    aplicarSkinConFallback(skinEl, cuenta, 36);
   }
 }
 
@@ -229,13 +248,8 @@ async function abrirModalCuentas() {
     });
 
     lista.appendChild(elemento);
-    obtenerSrcCabezaSkin(cuenta, 32).then(src => {
-      const img = elemento.querySelector('.account-item-skin img');
-      if (img) {
-        img.onerror = () => { img.src = './images/default/steve.png'; };
-        img.src = src;
-      }
-    });
+    const imgCuenta = elemento.querySelector('.account-item-skin img');
+    if (imgCuenta) aplicarSkinConFallback(imgCuenta, cuenta, 32);
   });
 
   modal.classList.add('open');

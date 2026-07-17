@@ -1,14 +1,35 @@
-use futures::StreamExt;
+use futures::stream::{self, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Semaphore;
 use tokio::io::AsyncWriteExt;
+
+/// Progreso acumulado de una fase de descarga completa (no de un archivo individual),
+/// compartido entre todas las tareas concurrentes de esa fase.
+struct EstadoProgresoGlobal {
+    bytes_done: AtomicU64,
+    bytes_total: u64,
+    files_done: AtomicUsize,
+    files_total: usize,
+    inicio: Instant,
+}
+
+fn nuevo_estado_progreso(bytes_total: u64, files_total: usize) -> Arc<EstadoProgresoGlobal> {
+    Arc::new(EstadoProgresoGlobal {
+        bytes_done: AtomicU64::new(0),
+        bytes_total,
+        files_done: AtomicUsize::new(0),
+        files_total,
+        inicio: Instant::now(),
+    })
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProgresoDescarga {
@@ -223,11 +244,11 @@ pub async fn download_instance(
         .map_err(|e| e.to_string())?;
     tokio::fs::write(&ruta_json, &texto_json).await.map_err(|e| e.to_string())?;
 
-    let mut archivos_a_descargar: Vec<(String, PathBuf, Option<String>)> = Vec::new();
+    let mut archivos_a_descargar: Vec<(String, PathBuf, Option<String>, Option<u64>)> = Vec::new();
 
     if let Some(descarga_cliente) = datos_version.downloads.get("client") {
         let ruta_jar = ruta_versiones.join(format!("{version}.jar"));
-        archivos_a_descargar.push((descarga_cliente.url.clone(), ruta_jar, descarga_cliente.sha1.clone()));
+        archivos_a_descargar.push((descarga_cliente.url.clone(), ruta_jar, descarga_cliente.sha1.clone(), descarga_cliente.size));
     }
 
     let nombre_os = obtener_nombre_os();
@@ -238,13 +259,13 @@ pub async fn download_instance(
         if let Some(descargas) = &libreria.downloads {
             if let Some(artefacto) = &descargas.artifact {
                 let ruta = ruta_librerias.join(&artefacto.path);
-                archivos_a_descargar.push((artefacto.url.clone(), ruta, artefacto.sha1.clone()));
+                archivos_a_descargar.push((artefacto.url.clone(), ruta, artefacto.sha1.clone(), artefacto.size));
             }
             if let Some(clasificadores) = &descargas.classifiers {
                 let clave_nativa = format!("natives-{nombre_os}");
                 if let Some(nativo) = clasificadores.get(&clave_nativa) {
                     let ruta = ruta_librerias.join(&nativo.path);
-                    archivos_a_descargar.push((nativo.url.clone(), ruta, nativo.sha1.clone()));
+                    archivos_a_descargar.push((nativo.url.clone(), ruta, nativo.sha1.clone(), nativo.size));
                 }
             }
         }
@@ -278,10 +299,10 @@ pub async fn download_instance(
             "https://resources.download.minecraft.net/{prefijo}/{}",
             objeto.hash
         );
-        archivos_a_descargar.push((url, ruta_asset, Some(objeto.hash.clone())));
+        archivos_a_descargar.push((url, ruta_asset, Some(objeto.hash.clone()), Some(objeto.size)));
     }
 
-    ejecutar_descargas_concurrentes(&archivos_a_descargar, max_concurrent, &cancelacion, &app).await;
+    ejecutar_descargas_concurrentes(&archivos_a_descargar, max_concurrent, &cancelacion, &app, "download").await;
 
     let loader = loader_type.as_deref().unwrap_or("none").to_lowercase();
     let version_loader = loader_version.as_deref().unwrap_or("latest");
@@ -335,17 +356,35 @@ pub async fn download_instance(
 }
 
 async fn ejecutar_descargas_concurrentes(
-    archivos: &[(String, PathBuf, Option<String>)],
+    archivos: &[(String, PathBuf, Option<String>, Option<u64>)],
     max_concurrent: usize,
     cancelacion: &Arc<Mutex<bool>>,
     app: &AppHandle,
+    fase: &str,
 ) {
-    let total_archivos = archivos.len();
-    let archivos_completados = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let semaforo = Arc::new(Semaphore::new(max_concurrent.max(1).min(32)));
+    let concurrencia = max_concurrent.max(1).min(32);
+
+    // Primero se determina qué archivos realmente hacen falta (concurrente),
+    // para poder sumar un tamaño total real ANTES de arrancar a descargar.
+    let pendientes: Vec<(String, PathBuf, Option<String>, u64)> = stream::iter(archivos.iter().cloned())
+        .map(|(url, ruta, sha1, size)| async move {
+            let necesita = necesita_descarga(&ruta, &sha1).await;
+            (necesita, url, ruta, sha1, size.unwrap_or(0))
+        })
+        .buffer_unordered(concurrencia)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .filter(|(necesita, ..)| *necesita)
+        .map(|(_, url, ruta, sha1, size)| (url, ruta, sha1, size))
+        .collect();
+
+    let bytes_total: u64 = pendientes.iter().map(|(_, _, _, size)| *size).sum();
+    let estado = nuevo_estado_progreso(bytes_total, pendientes.len());
+    let semaforo = Arc::new(Semaphore::new(concurrencia));
     let mut tareas = Vec::new();
 
-    for (url, ruta, sha1) in archivos {
+    for (url, ruta, sha1, _size) in pendientes {
         if *cancelacion.lock().unwrap() {
             break;
         }
@@ -353,23 +392,19 @@ async fn ejecutar_descargas_concurrentes(
         let semaforo_clon = semaforo.clone();
         let app_clon = app.clone();
         let cancelacion_clon = cancelacion.clone();
-        let contador_completados = archivos_completados.clone();
-        let url = url.clone();
-        let ruta = ruta.clone();
-        let sha1 = sha1.clone();
+        let estado_clon = estado.clone();
+        let fase = fase.to_string();
 
         tareas.push(tokio::spawn(async move {
             let _permiso = semaforo_clon.acquire().await.unwrap();
             if *cancelacion_clon.lock().unwrap() {
                 return;
             }
-            if necesita_descarga(&ruta, &sha1).await {
-                if let Some(padre) = ruta.parent() {
-                    tokio::fs::create_dir_all(padre).await.ok();
-                }
-                descargar_archivo(&url, &ruta, &sha1, &app_clon, total_archivos).await.ok();
+            if let Some(padre) = ruta.parent() {
+                tokio::fs::create_dir_all(padre).await.ok();
             }
-            contador_completados.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            descargar_archivo(&url, &ruta, &sha1, &app_clon, &fase, &estado_clon).await.ok();
+            estado_clon.files_done.fetch_add(1, Ordering::Relaxed);
         }));
     }
 
@@ -412,13 +447,13 @@ async fn instalar_fabric(
     .map_err(|e| format!("Fabric profile parse: {e}"))?;
 
     let ruta_librerias = ruta_juego.join("libraries");
-    let mut archivos_libreria: Vec<(String, PathBuf, Option<String>)> = Vec::new();
+    let mut archivos_libreria: Vec<(String, PathBuf, Option<String>, Option<u64>)> = Vec::new();
 
     for libreria in &perfil.libraries {
         let ruta_relativa = maven_a_ruta(&libreria.name);
         let destino = ruta_librerias.join(&ruta_relativa);
         let url = format!("{}{}", libreria.url.trim_end_matches('/'), format!("/{ruta_relativa}"));
-        archivos_libreria.push((url, destino, libreria.sha1.clone()));
+        archivos_libreria.push((url, destino, libreria.sha1.clone(), None));
     }
 
     emit_progreso(
@@ -432,7 +467,7 @@ async fn instalar_fabric(
     );
 
     let cancelacion = Arc::new(Mutex::new(false));
-    ejecutar_descargas_concurrentes(&archivos_libreria, 8, &cancelacion, app).await;
+    ejecutar_descargas_concurrentes(&archivos_libreria, 8, &cancelacion, app, "loader").await;
 
     app.emit(
         "game-log",
@@ -499,7 +534,9 @@ async fn instalar_forge(
         1,
     );
 
-    descargar_archivo(&url_instalador, &ruta_instalador, &None, app, 1).await?;
+    let tamano_instalador = obtener_content_length(&url_instalador).await.unwrap_or(0);
+    let estado_instalador = nuevo_estado_progreso(tamano_instalador, 1);
+    descargar_archivo(&url_instalador, &ruta_instalador, &None, app, "loader", &estado_instalador).await?;
 
     emit_progreso(
         app,
@@ -595,26 +632,27 @@ async fn descargar_librerias_forge(
     };
 
     let ruta_librerias = ruta_juego.join("libraries");
-    let mut archivos_libreria: Vec<(String, PathBuf, Option<String>)> = Vec::new();
+    let mut archivos_libreria: Vec<(String, PathBuf, Option<String>, Option<u64>)> = Vec::new();
 
     for libreria in librerias {
         if let Some(url) = libreria["downloads"]["artifact"]["url"].as_str() {
             if let Some(ruta) = libreria["downloads"]["artifact"]["path"].as_str() {
                 let destino = ruta_librerias.join(ruta);
                 let sha1 = libreria["downloads"]["artifact"]["sha1"].as_str().map(|s| s.to_string());
-                archivos_libreria.push((url.to_string(), destino, sha1));
+                let size = libreria["downloads"]["artifact"]["size"].as_u64();
+                archivos_libreria.push((url.to_string(), destino, sha1, size));
             }
         } else if let Some(nombre) = libreria["name"].as_str() {
             let url_base = libreria["url"].as_str().unwrap_or("https://libraries.minecraft.net/");
             let relativa = maven_a_ruta(nombre);
             let url = format!("{}/{relativa}", url_base.trim_end_matches('/'));
             let destino = ruta_librerias.join(&relativa);
-            archivos_libreria.push((url, destino, None));
+            archivos_libreria.push((url, destino, None, None));
         }
     }
 
     let cancelacion = Arc::new(Mutex::new(false));
-    ejecutar_descargas_concurrentes(&archivos_libreria, 8, &cancelacion, app).await;
+    ejecutar_descargas_concurrentes(&archivos_libreria, 8, &cancelacion, app, "loader").await;
 }
 
 async fn descargar_archivos_servidor(
@@ -639,52 +677,88 @@ async fn descargar_archivos_servidor(
 
     app.emit("game-log", format!("[Launcher] Total archivos servidor: {}", archivos.len())).ok();
 
-    let total_archivos = archivos.len();
+    let base_url = Url::parse(url_instancia).map_err(|e| format!("Base URL parse failed: {e}"))?;
+
+    // Las carpetas/archivos "ignorados" (config, saves, screenshots, logs, etc.) son del
+    // jugador: nunca se tocan, existan o no ya localmente. Se descartan acá, antes de
+    // encolar nada, para no bajarlos en una instalación nueva.
+    let candidatos: Vec<(String, PathBuf, Option<String>, u64)> = archivos
+        .iter()
+        .filter_map(|archivo_servidor| {
+            let ruta_relativa = archivo_servidor.path.replace('\\', "/");
+
+            let esta_ignorado = ignorados.iter().any(|ignorado| {
+                let ignorado_normalizado = ignorado.trim_start_matches('/').to_lowercase();
+                ruta_relativa.to_lowercase().starts_with(&ignorado_normalizado)
+            });
+            if esta_ignorado {
+                return None;
+            }
+
+            let url = if let Ok(parsed) = Url::parse(&archivo_servidor.url) {
+                parsed.to_string()
+            } else {
+                base_url.join(&archivo_servidor.url).ok()?.to_string()
+            };
+            let destino = ruta_juego.join(&ruta_relativa);
+            Some((url, destino, Some(archivo_servidor.hash.clone()), archivo_servidor.size))
+        })
+        .collect();
+
+    let cantidad_ignorados = archivos.len() - candidatos.len();
+    if cantidad_ignorados > 0 {
+        app.emit("game-log", format!("[Launcher] {cantidad_ignorados} archivos omitidos (carpetas del jugador)")).ok();
+    }
+
+    let concurrencia = max_concurrent.max(1).min(16);
+
+    // Entre los no ignorados, filtra (concurrente) los que ya están al día.
+    let pendientes: Vec<(String, PathBuf, Option<String>, u64)> = stream::iter(candidatos.into_iter())
+        .map(|(url, destino, sha1, size)| async move {
+            let jar_corrupto = destino.exists()
+                && destino.extension().and_then(|e| e.to_str()) == Some("jar")
+                && !es_zip_valido(&destino);
+            if jar_corrupto {
+                let _ = tokio::fs::remove_file(&destino).await;
+            }
+            let necesita = jar_corrupto || necesita_descarga(&destino, &sha1).await;
+            (necesita, url, destino, sha1, size)
+        })
+        .buffer_unordered(concurrencia)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .filter(|(necesita, ..)| *necesita)
+        .map(|(_, url, destino, sha1, size)| (url, destino, sha1, size))
+        .collect();
+
+    let total_archivos = pendientes.len();
+    let bytes_total: u64 = pendientes.iter().map(|(_, _, _, size)| *size).sum();
     app.emit("game-log", format!("[Launcher] Archivos a sincronizar: {total_archivos}")).ok();
 
     emit_progreso(
         app,
         "instance",
-        &format!("Sincronizando {} archivos...", total_archivos),
+        &format!("Sincronizando {total_archivos} archivos..."),
         0,
-        0,
+        bytes_total,
         0,
         total_archivos,
     );
 
-    let total = total_archivos;
-    let archivos_completados = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let semaforo = Arc::new(Semaphore::new(max_concurrent.max(1).min(16)));
+    let estado = nuevo_estado_progreso(bytes_total, total_archivos);
+    let semaforo = Arc::new(Semaphore::new(concurrencia));
     let mut tareas = Vec::new();
 
-    let base_url = Url::parse(url_instancia).map_err(|e| format!("Base URL parse failed: {e}"))?;
-
-    for archivo_servidor in &archivos {
+    for (url, destino, sha1, _size) in pendientes {
         if *cancelacion.lock().unwrap() {
             break;
         }
 
         let semaforo_clon = semaforo.clone();
         let cancelacion_clon = cancelacion.clone();
-        let contador_completados = archivos_completados.clone();
         let app_clon = app.clone();
-        let url = if let Ok(parsed) = Url::parse(&archivo_servidor.url) {
-            parsed.to_string()
-        } else {
-            base_url
-                .join(&archivo_servidor.url)
-                .map_err(|e| format!("Relative URL join failed: {e}"))?
-                .to_string()
-        };
-        let hash = archivo_servidor.hash.clone();
-        let ruta_relativa = archivo_servidor.path.replace('\\', "/");
-
-        let destino = ruta_juego.join(&ruta_relativa);
-
-        let esta_ignorado = ignorados.iter().any(|ignorado| {
-            let ignorado_normalizado = ignorado.trim_start_matches('/').to_lowercase();
-            ruta_relativa.to_lowercase().starts_with(&ignorado_normalizado)
-        });
+        let estado_clon = estado.clone();
 
         tareas.push(tokio::spawn(async move {
             let _permiso = semaforo_clon.acquire().await.unwrap();
@@ -692,30 +766,14 @@ async fn descargar_archivos_servidor(
                 return;
             }
 
-            let sha1_opcional = Some(hash.clone());
-            let debe_descargar = if !destino.exists() {
-                true
-            } else if destino.extension().and_then(|e| e.to_str()) == Some("jar") && !es_zip_valido(&destino) {
-                app_clon.emit("game-log", format!("[Launcher] Corrupt JAR detected, re-downloading: {ruta_relativa}")).ok();
-                let _ = tokio::fs::remove_file(&destino).await;
-                true
-            } else if esta_ignorado {
-                false
-            } else {
-                necesita_descarga(&destino, &sha1_opcional).await
-            };
-
-            if debe_descargar {
-                if let Some(padre) = destino.parent() {
-                    tokio::fs::create_dir_all(padre).await.ok();
-                }
-                if let Err(e) = descargar_archivo(&url, &destino, &sha1_opcional, &app_clon, total).await {
-                    app_clon.emit("game-log", format!("[DL ERROR] {ruta_relativa}: {e}")).ok();
-                }
+            if let Some(padre) = destino.parent() {
+                tokio::fs::create_dir_all(padre).await.ok();
+            }
+            if let Err(e) = descargar_archivo(&url, &destino, &sha1, &app_clon, "instance", &estado_clon).await {
+                app_clon.emit("game-log", format!("[DL ERROR] {}: {e}", destino.display())).ok();
             }
 
-            let completados = contador_completados.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-            emit_progreso(&app_clon, "instance", &ruta_relativa, completados as u64, total as u64, completados, total);
+            estado_clon.files_done.fetch_add(1, Ordering::Relaxed);
         }));
     }
 
@@ -761,7 +819,8 @@ async fn descargar_archivo(
     ruta: &PathBuf,
     sha1: &Option<String>,
     app: &AppHandle,
-    total_archivos: usize,
+    fase: &str,
+    estado: &Arc<EstadoProgresoGlobal>,
 ) -> Result<(), String> {
     let nombre_archivo = ruta
         .file_name()
@@ -773,9 +832,6 @@ async fn descargar_archivo(
     if !respuesta.status().is_success() {
         return Err(format!("HTTP {} for {url}", respuesta.status()));
     }
-    let total = respuesta.content_length().unwrap_or(0);
-    let mut descargado: u64 = 0;
-    let inicio = Instant::now();
 
     if let Some(padre) = ruta.parent() {
         tokio::fs::create_dir_all(padre).await.map_err(|e| e.to_string())?;
@@ -798,16 +854,17 @@ async fn descargar_archivo(
         let fragmento = fragmento.map_err(|e| e.to_string())?;
         archivo.write_all(&fragmento).await.map_err(|e| e.to_string())?;
         hasher.update(&fragmento);
-        descargado += fragmento.len() as u64;
+        let descargado_global = estado.bytes_done.fetch_add(fragmento.len() as u64, Ordering::Relaxed)
+            + fragmento.len() as u64;
 
-        let transcurrido = inicio.elapsed().as_secs_f64();
+        let transcurrido = estado.inicio.elapsed().as_secs_f64();
         let velocidad = if transcurrido > 0.0 {
-            descargado as f64 / transcurrido
+            descargado_global as f64 / transcurrido
         } else {
             0.0
         };
-        let restante = if velocidad > 0.0 && total > descargado {
-            (total - descargado) as f64 / velocidad
+        let restante = if velocidad > 0.0 && estado.bytes_total > descargado_global {
+            (estado.bytes_total - descargado_global) as f64 / velocidad
         } else {
             0.0
         };
@@ -815,14 +872,14 @@ async fn descargar_archivo(
         app.emit(
             "download-progress",
             ProgresoDescarga {
-                phase: "download".to_string(),
+                phase: fase.to_string(),
                 file: nombre_archivo.clone(),
-                downloaded: descargado,
-                total,
+                downloaded: descargado_global,
+                total: estado.bytes_total,
                 speed_bps: velocidad,
                 eta_seconds: restante,
-                files_done: 0,
-                files_total: total_archivos,
+                files_done: estado.files_done.load(Ordering::Relaxed),
+                files_total: estado.files_total,
             },
         )
         .ok();
@@ -881,6 +938,15 @@ fn emit_progreso(
         },
     )
     .ok();
+}
+
+async fn obtener_content_length(url: &str) -> Option<u64> {
+    reqwest::Client::new()
+        .head(url)
+        .send()
+        .await
+        .ok()?
+        .content_length()
 }
 
 fn obtener_nombre_os() -> &'static str {

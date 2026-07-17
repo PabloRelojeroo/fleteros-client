@@ -63,7 +63,7 @@ try {
         Copy-Item -Path $sig.FullName -Destination (Join-Path $targetDir $sig.Name) -Force
         return [ordered]@{
             signature = [System.IO.File]::ReadAllText($sig.FullName)
-            url       = "http://pablorelojero.online/launchers/$launcherName/$([System.Uri]::EscapeDataString($file.Name))"
+            url       = "https://pablorelojero.online/launchers/$launcherName/$([System.Uri]::EscapeDataString($file.Name))"
         }
     }
 
@@ -102,7 +102,7 @@ try {
 
     $latestJson = $latest | ConvertTo-Json -Depth 6
     $latestPath = Join-Path $targetDir 'latest.json'
-    [System.IO.File]::WriteAllText($latestPath, $latestJson, [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText($latestPath, $latestJson, (New-Object System.Text.UTF8Encoding $false))
 
     Write-Output "Deployado '$launcherName' version $version a $targetDir"
     Write-Output "Plataformas incluidas: $($platforms.Keys -join ', ')"

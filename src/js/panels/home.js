@@ -355,7 +355,7 @@ function ocultarOverlayDescarga() {
 
 function actualizarProgresoDescarga(progreso) {
   const asignar = (id, valor) => { const el = document.getElementById(id); if (el) el.textContent = valor; };
-  const mapaFases = { fetch: 'Obteniendo datos', download: 'Descargando', verify: 'Verificando', extract: 'Extrayendo' };
+  const mapaFases = { fetch: 'Obteniendo datos', download: 'Descargando', verify: 'Verificando', extract: 'Extrayendo', loader: 'Instalando loader', instance: 'Sincronizando archivos' };
   asignar('dl-phase', mapaFases[progreso.phase] || progreso.phase);
   asignar('dl-file', progreso.file);
   asignar('dl-speed', formatearVelocidad(progreso.speed_bps));

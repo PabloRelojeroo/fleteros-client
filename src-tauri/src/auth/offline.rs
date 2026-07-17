@@ -1,6 +1,26 @@
 use super::{Account, AuthType};
+use std::time::Duration;
 use tauri::AppHandle;
 use uuid::Uuid;
+
+/// Chequea contra la API de Mojang si el nombre pertenece a una cuenta premium real.
+/// Si Mojang no responde (sin internet, caído, timeout) se deja pasar: el modo
+/// offline no debe depender de que un servicio externo esté disponible.
+async fn es_nombre_premium(username: &str) -> bool {
+    let cliente = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(4))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    let url = format!("https://api.mojang.com/users/profiles/minecraft/{username}");
+    match cliente.get(&url).send().await {
+        Ok(respuesta) => respuesta.status().is_success(),
+        Err(_) => false,
+    }
+}
 
 const ESPACIO_NOMBRES_OFFLINE: Uuid = Uuid::from_bytes([
     0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
@@ -11,6 +31,13 @@ const ESPACIO_NOMBRES_OFFLINE: Uuid = Uuid::from_bytes([
 pub async fn auth_offline(username: String, app: AppHandle) -> Result<Account, String> {
     if username.is_empty() || username.len() > 16 {
         return Err("Username must be 1-16 characters".to_string());
+    }
+
+    if es_nombre_premium(&username).await {
+        return Err(
+            "Ese nombre pertenece a una cuenta de Minecraft premium, no se puede usar en modo offline"
+                .to_string(),
+        );
     }
 
     let uuid = Uuid::new_v3(&ESPACIO_NOMBRES_OFFLINE, username.as_bytes()).to_string();
