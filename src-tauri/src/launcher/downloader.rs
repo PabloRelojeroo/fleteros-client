@@ -684,7 +684,7 @@ async fn descargar_archivos_servidor(
 
     let base_url = Url::parse(url_instancia).map_err(|e| format!("Base URL parse failed: {e}"))?;
 
-    let candidatos: Vec<(String, PathBuf, Option<String>, u64)> = archivos
+    let candidatos: Vec<(String, PathBuf, Option<String>, u64, String)> = archivos
         .iter()
         .filter_map(|archivo_servidor| {
             let ruta_relativa = archivo_servidor.path.replace('\\', "/");
@@ -703,7 +703,7 @@ async fn descargar_archivos_servidor(
                 base_url.join(&archivo_servidor.url).ok()?.to_string()
             };
             let destino = ruta_juego.join(&ruta_relativa);
-            Some((url, destino, Some(archivo_servidor.hash.clone()), archivo_servidor.size))
+            Some((url, destino, Some(archivo_servidor.hash.clone()), archivo_servidor.size, ruta_relativa))
         })
         .collect();
 
@@ -712,10 +712,19 @@ async fn descargar_archivos_servidor(
         app.emit("game-log", format!("[Launcher] {cantidad_ignorados} archivos omitidos (carpetas del jugador)")).ok();
     }
 
+    let rutas_esperadas: std::collections::HashSet<String> =
+        candidatos.iter().map(|(_, _, _, _, rel)| rel.clone()).collect();
+    let carpetas_gestionadas: std::collections::HashSet<String> = rutas_esperadas
+        .iter()
+        .filter_map(|rel| rel.split_once('/').map(|(carpeta, _)| carpeta.to_string()))
+        .collect();
+
+    podar_archivos_no_listados(ruta_juego, &carpetas_gestionadas, &rutas_esperadas, app);
+
     let concurrencia = max_concurrent.max(1).min(16);
 
     let pendientes: Vec<(String, PathBuf, Option<String>, u64)> = stream::iter(candidatos.into_iter())
-        .map(|(url, destino, sha1, size)| async move {
+        .map(|(url, destino, sha1, size, _rel)| async move {
             let jar_corrupto = destino.exists()
                 && destino.extension().and_then(|e| e.to_str()) == Some("jar")
                 && !es_zip_valido(&destino);
@@ -780,6 +789,44 @@ async fn descargar_archivos_servidor(
 
     futures::future::join_all(tareas).await;
     Ok(total_archivos)
+}
+
+fn podar_archivos_no_listados(
+    ruta_juego: &PathBuf,
+    carpetas_gestionadas: &std::collections::HashSet<String>,
+    rutas_esperadas: &std::collections::HashSet<String>,
+    app: &AppHandle,
+) {
+    for carpeta in carpetas_gestionadas {
+        let base = ruta_juego.join(carpeta);
+        if base.exists() {
+            podar_recursivo(&base, ruta_juego, rutas_esperadas, app);
+        }
+    }
+}
+
+fn podar_recursivo(
+    dir: &PathBuf,
+    ruta_juego: &PathBuf,
+    rutas_esperadas: &std::collections::HashSet<String>,
+    app: &AppHandle,
+) {
+    let Ok(lectura) = std::fs::read_dir(dir) else { return };
+    for entrada in lectura.flatten() {
+        let ruta = entrada.path();
+        if ruta.is_dir() {
+            podar_recursivo(&ruta, ruta_juego, rutas_esperadas, app);
+            let quedo_vacia = std::fs::read_dir(&ruta).map(|mut r| r.next().is_none()).unwrap_or(false);
+            if quedo_vacia {
+                let _ = std::fs::remove_dir(&ruta);
+            }
+        } else if let Ok(relativa) = ruta.strip_prefix(ruta_juego) {
+            let relativa_str = relativa.to_string_lossy().replace('\\', "/");
+            if !rutas_esperadas.contains(&relativa_str) && std::fs::remove_file(&ruta).is_ok() {
+                app.emit("game-log", format!("[Launcher] Eliminado (ya no está en el servidor): {relativa_str}")).ok();
+            }
+        }
+    }
 }
 
 fn maven_a_ruta(nombre: &str) -> String {
